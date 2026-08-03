@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "correction-center-smart-pos-agent"
+version = "0.1.0"
+description = "Windows Smart POS agent for Correction Center CRM"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "NovaRenard" }]
+dependencies = [
+  "httpx>=0.27,<1",
+  "websockets>=13,<16",
+  "pydantic>=2.8,<3",
+  "pydantic-settings>=2.3,<3",
+  "typer>=0.12,<1",
+  "keyring>=25,<26",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9",
+  "pytest-asyncio>=0.23,<1",
+  "respx>=0.21,<1",
+  "ruff>=0.6,<1",
+  "mypy>=1.11,<2",
+  "pyinstaller>=6.10,<7",
+]
+
+[project.scripts]
+smart-pos-agent = "smart_pos_agent.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smart_pos_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "S", "RUF"]
+ignore = ["RUF001", "S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["smart_pos_agent"]
+exclude = ["tests", "tools"]
+
+[[tool.mypy.overrides]]
+module = ["keyring", "keyring.backends", "keyring.errors"]
+ignore_missing_imports = true
