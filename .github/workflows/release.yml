@@ -25,7 +25,11 @@ jobs:
       - name: Check tag version and package archives
         shell: pwsh
         run: |
-          $packageVersion = python -c "from smart_pos_agent.version import __version__; print(__version__)"
+          $python = Join-Path $PWD '.venv\Scripts\python.exe'
+          $packageVersion = & $python -c "from smart_pos_agent.version import __version__; print(__version__)"
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not read the package version from the build environment.'
+          }
           if ('${{ github.ref_name }}' -ne "v$packageVersion") {
             throw "Git tag and package version do not match: ${{ github.ref_name }} vs $packageVersion"
           }
