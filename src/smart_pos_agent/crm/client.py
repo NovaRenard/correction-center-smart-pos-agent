@@ -11,8 +11,9 @@ from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
 
 from ..config import Settings
+from ..events import StatusObserver, notify
 from ..operations.manager import OperationManager
-from ..smart_pos.exceptions import SmartPosError
+from ..smart_pos.exceptions import AuthenticationError, SmartPosError
 from ..storage.secret_store import SecretStore
 from .commands import DeviceCheckCommand, PaymentStartCommand, RefundStartCommand
 from .protocol import UnknownCommandType, make_event, parse_command
@@ -25,11 +26,16 @@ class CrmClient:
     """Outgoing, reconnecting WebSocket connection to Correction Center CRM."""
 
     def __init__(
-        self, settings: Settings, secret_store: SecretStore, operations: OperationManager
+        self,
+        settings: Settings,
+        secret_store: SecretStore,
+        operations: OperationManager,
+        status_observer: StatusObserver | None = None,
     ) -> None:
         self.settings = settings
         self.secret_store = secret_store
         self.operations = operations
+        self.status_observer = status_observer
         self.operations.set_event_sink(self.send_event)
         self._socket: ClientConnection | None = None
         self._send_lock = asyncio.Lock()
@@ -41,6 +47,7 @@ class CrmClient:
     async def run(self) -> None:
         while not self._stop.is_set():
             try:
+                notify(self.status_observer, "crm.connecting", {})
                 token = self._crm_token()
                 async with connect(
                     self.settings.crm_ws_url,
@@ -50,20 +57,40 @@ class CrmClient:
                     self._socket = socket
                     self._backoff.reset()
                     logger.info("crm_connected")
+                    notify(self.status_observer, "crm.connected", {})
                     await self._send_hello()
                     await self.operations.resume_incomplete()
                     await self._run_session(socket)
             except (OSError, TimeoutError, WebSocketException) as exc:
                 logger.warning("crm_connection_lost class=%s", exc.__class__.__name__)
+                notify(self.status_observer, "crm.disconnected", {"error": exc.__class__.__name__})
+            except ConnectionError as exc:
+                logger.warning("crm_authentication_unavailable class=%s", exc.__class__.__name__)
+                notify(
+                    self.status_observer,
+                    "crm.authentication_error",
+                    {"error": exc.__class__.__name__},
+                )
             finally:
                 self._socket = None
             if not self._stop.is_set():
                 delay = self._backoff.next_delay()
                 logger.info("crm_reconnect_wait seconds=%.2f", delay)
+                notify(self.status_observer, "crm.reconnecting", {"delay": delay})
                 await asyncio.sleep(delay)
 
     def stop(self) -> None:
         self._stop.set()
+
+    async def reconnect(self) -> None:
+        """Close the current socket so the normal reconnect loop establishes a new one."""
+        socket = self._socket
+        if socket is not None:
+            await socket.close()
+
+    async def aclose(self) -> None:
+        self.stop()
+        await self.reconnect()
 
     async def check_connection(self) -> None:
         """Open and close an authenticated socket for the doctor command."""
@@ -105,6 +132,7 @@ class CrmClient:
                     },
                 )
             )
+            notify(self.status_observer, "crm.heartbeat", {})
 
     async def _send_hello(self) -> None:
         terminal: dict[str, Any] = {
@@ -121,8 +149,13 @@ class CrmClient:
                 "serialNumber": info.serial_num,
                 "posNum": info.pos_num,
             }
+            notify(self.status_observer, "terminal.ready", terminal)
+        except AuthenticationError as exc:
+            logger.warning("hello_terminal_unauthorized class=%s", exc.__class__.__name__)
+            notify(self.status_observer, "terminal.unauthorized", {"error": exc.__class__.__name__})
         except (SmartPosError, ConnectionError, OSError, ValueError) as exc:
             logger.warning("hello_terminal_check_failed class=%s", exc.__class__.__name__)
+            notify(self.status_observer, "terminal.unavailable", {"error": exc.__class__.__name__})
         await self.send_event(
             make_event(
                 "agent.hello",
@@ -135,6 +168,7 @@ class CrmClient:
                 },
             )
         )
+        notify(self.status_observer, "crm.hello", terminal)
 
     async def _handle_message(self, raw_message: str | bytes) -> None:
         try:

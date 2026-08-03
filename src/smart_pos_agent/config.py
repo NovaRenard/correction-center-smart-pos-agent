@@ -9,6 +9,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .constants import DEFAULT_WINDOWS_DATA_DIRECTORY
+from .version import __version__
 
 
 class SmartPosTlsMode(StrEnum):
@@ -24,7 +25,7 @@ class Settings(BaseSettings):
 
     agent_id: str = Field(min_length=1)
     agent_name: str = Field(default="Koshakan Smart POS Agent", min_length=1)
-    agent_version: str = "0.1.0"
+    agent_version: str = __version__
     crm_ws_url: str
     crm_agent_token: str | None = None
 

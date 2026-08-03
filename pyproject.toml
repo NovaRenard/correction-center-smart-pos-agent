@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "correction-center-smart-pos-agent"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Windows Smart POS agent for Correction Center CRM"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,6 +17,7 @@ dependencies = [
   "pydantic-settings>=2.3,<3",
   "typer>=0.12,<1",
   "keyring>=25,<26",
+  "PySide6>=6.7,<7",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,10 @@ dev = [
 
 [project.scripts]
 smart-pos-agent = "smart_pos_agent.cli:app"
+smart-pos-agent-desktop = "smart_pos_agent.desktop.main:main"
+
+[tool.hatch.version]
+path = "src/smart_pos_agent/version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/smart_pos_agent"]
@@ -58,4 +63,8 @@ exclude = ["tests", "tools"]
 
 [[tool.mypy.overrides]]
 module = ["keyring", "keyring.backends", "keyring.errors"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["PySide6", "PySide6.*"]
 ignore_missing_imports = true

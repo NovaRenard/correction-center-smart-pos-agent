@@ -10,7 +10,7 @@ if (-not (Test-Path -LiteralPath $ResolvedExecutable -PathType Leaf)) {
 }
 
 $TaskName = 'Koshakan Smart POS Agent'
-$Action = New-ScheduledTaskAction -Execute $ResolvedExecutable -Argument 'run'
+$Action = New-ScheduledTaskAction -Execute $ResolvedExecutable
 $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $Principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Force | Out-Null

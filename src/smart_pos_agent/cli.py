@@ -3,15 +3,34 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Annotated, Any
 
 import typer
 from pydantic import ValidationError
 
 from .application import Application
 from .config import Settings
+from .version import __version__
 
 app = typer.Typer(help="Локальный агент официального Kaspi Smart POS API.", no_args_is_help=True)
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version", callback=_version_callback, is_eager=True, help="Показать версию."
+        ),
+    ] = False,
+) -> None:
+    """Команды диагностики и обслуживания Smart POS Agent."""
 
 
 def _build_application() -> Application:

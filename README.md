@@ -1,103 +1,101 @@
-# Correction Center Smart POS Agent
+# Koshakan Smart POS Agent
 
-Локальный Windows-агент, который связывает облачную `correction-center-crm` с физическим Kaspi Smart POS. CRM остаётся источником истины для учеников, занятий, задолженностей и оплат; агент только выполняет команды терминала и сообщает результат.
+Windows-агент, который соединяет Correction Center CRM с физическим Kaspi Smart POS только через официальный локальный HTTPS API терминала. CRM остаётся источником истины; агент выполняет операции и передаёт их результат по существующему WebSocket-протоколу.
 
-Это интеграция **только с официальным локальным Smart POS API** (`https://<host>:8080/v2/...`). Это не Kaspi Pay mobile API: в проекте нет мобильной авторизации, SMS, `entrance-pay.kaspi.kz`, `mtoken.kaspi.kz`, QR через неофициальные API или эмуляции приложения.
+## Tray-приложение
 
-## Важные условия
+Основной способ работы — `KoshakanSmartPosAgent.exe`. После запуска значок остаётся возле часов Windows, а закрытие окна через `X` только скрывает его: агент продолжает работать в фоне. Полное завершение доступно только через меню значка → «Выход».
 
-- Компьютер администратора и Smart POS должны находиться в одной закрытой локальной сети.
-- У Smart POS должен быть статический IP-адрес.
-- Агент работает, только пока компьютер включён и активна пользовательская сессия Windows.
-- Для IP-адреса терминала часто нужен `SMART_POS_TLS_MODE=ip_insecure`, поскольку сертификат терминала не совпадает с IP. Это явное, записываемое в лог ослабление проверки TLS; HTTP всё равно запрещён.
-- Один терминал обрабатывает одну активную операцию. Вторая команда немедленно отклоняется с `terminal_busy`, в очередь не ставится.
+Цвет значка:
 
-## Установка и настройка
+- зелёный — CRM подключена, Smart POS готов;
+- синий — выполняется операция;
+- жёлтый — идёт переподключение или требуется настройка;
+- красный — CRM/терминал недоступен либо нужна ручная проверка;
+- серый — агент остановлен.
 
-1. Установите [Python 3.12+](https://www.python.org/downloads/windows/) и убедитесь, что `python` доступен в PowerShell.
-2. Скопируйте `.env.example` в `.env` и заполните значения. Не коммитьте `.env`.
-3. Установите проект:
+GUI и CLI используют одно ядро. В GUI нет локального веб-сервера, браузерного интерфейса или Electron.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-```
+## Где скачать готовую версию
 
-Ключевые параметры `.env`:
+Откройте страницу [GitHub Releases](https://github.com/NovaRenard/correction-center-smart-pos-agent/releases) и скачайте `KoshakanSmartPosAgent-vX.Y.Z-win64.zip`.
 
-```dotenv
-AGENT_ID=постоянный-uuid-агента
-CRM_WS_URL=wss://crm.example.kz/api/v1/smart-pos/agent/ws
-CRM_AGENT_TOKEN=выданный-CRM-токен
-SMART_POS_HOST=192.168.1.100
-SMART_POS_TLS_MODE=ip_insecure
-SMART_POS_CLIENT_NAME=KoshakanSmartPosAgent
-```
+1. Распакуйте весь архив в отдельную папку.
+2. Не запускайте EXE прямо из ZIP.
+3. Запустите `KoshakanSmartPosAgent.exe`.
+4. Пройдите первый запуск, затем значок появится возле часов.
 
-В production секреты Smart POS и CRM переносятся в Windows Credential Manager через `keyring`. `CRM_AGENT_TOKEN` в `.env` нужен для начальной настройки и больше не выводится. `DEVELOPMENT_MODE=true` включает явно отмеченное файловое хранилище `.data/secrets.json` только для локальной разработки.
+Windows SmartScreen может запросить подтверждение, потому что приложение пока не подписано code-signing сертификатом. Проверяйте источник архива и SHA-256 из `SHA256SUMS.txt`.
 
-## Первичный запуск
+## Первый запуск и настройка
+
+Мастер запрашивает название агента, CRM WebSocket URL, CRM Agent Token, IP/порт Smart POS, имя клиента и TLS mode. `AGENT_ID` генерируется один раз и хранится как несекретная настройка. CRM Agent Token, а также access/refresh-токены Smart POS, сохраняются через Windows Credential Manager (в development mode используется явно отмеченный `SecretStore`). Они не записываются в `config.json`, SQLite, аргументы запуска или окно приложения.
+
+Несекретная конфигурация находится в `%PROGRAMDATA%\KoshakanSmartPosAgent\config.json`; при `DEVELOPMENT_MODE=true` — в `.data\config.json`. Запись атомарная. Приоритет: environment variables и `.env` (для разработки/автоматизации) → persistent config → defaults. Это сохраняет существующие CLI-сценарии с `.env`.
+
+## Подключение Smart POS
+
+В окне выберите «Подключить терминал»:
+
+1. На Smart POS откройте «Панель администратора» → «Защита интеграции» → «Настроить доступ».
+2. Нажмите «Отправить запрос регистрации» в приложении.
+3. Подтвердите запрос на экране терминала.
+
+Токены никогда не отображаются. Агент использует только `https://<host>:8080/v2/...`; мобильные Kaspi endpoint’ы, SMS-авторизация и выдуманный cancel endpoint не используются.
+
+## Автозапуск Windows
+
+В меню tray или настройках включите «Запускать вместе с Windows». Создаётся задача текущего пользователя `Koshakan Smart POS Agent`, запускающая GUI EXE без аргументов и секретов. В исходниках автозапуск намеренно не регистрируется: включайте его в собранном приложении.
+
+## CLI
+
+`KoshakanSmartPosAgentCli.exe` — отдельный console-инструмент диагностики. В исходниках доступны прежние команды:
 
 ```powershell
 python -m smart_pos_agent doctor
 python -m smart_pos_agent register
 python -m smart_pos_agent device-info
 python -m smart_pos_agent run
+python -m smart_pos_agent show-status
+python -m smart_pos_agent --version
 ```
 
-`register` вызывает `GET /v2/register?name=...`; разрешите запрос на экране терминала. Полученные access/refresh-токены не показываются в терминале и не попадают в SQLite.
+Реальные операции остаются осознанными действиями: `test-payment` и `test-refund` требуют физический терминал и не должны использоваться без контроля ответственного сотрудника.
 
-## Контрольная оплата и возврат
+## Логи и данные
 
-> Тестовую оплату запускайте только на реальном терминале с минимальной суммой и под контролем ответственного сотрудника.
+- логи: `%PROGRAMDATA%\KoshakanSmartPosAgent\logs\agent.log`;
+- SQLite: `%PROGRAMDATA%\KoshakanSmartPosAgent\agent.sqlite3`;
+- development mode: `.data\logs` и `.data\agent.sqlite3`.
 
-```powershell
-python -m smart_pos_agent test-payment --amount 10
-python -m smart_pos_agent test-payment --amount 10 --yes
-python -m smart_pos_agent test-refund --amount 10 --method qr --transaction-id 504711333
-```
+Одна активная операция на терминал остаётся строгим правилом. `unknown` обрабатывается через официальный `actualize`; после таймаута используется `manual_review`, а повторную оплату запускать нельзя до сверки с терминалом.
 
-Сумма принимается только как положительное целое число KZT. Возврат должен использовать тот же метод, которым проведена оплата: для QR берётся `orderNumber`, для карты — `rrn`.
-
-## Локальный mock CRM
-
-Mock не требует реального Smart POS и удобен для проверки WebSocket-контракта.
-
-Терминал 1:
-
-```powershell
-python tools/mock_crm_server.py
-```
-
-Терминал 2 (укажите для локальной проверки `CRM_WS_URL=ws://127.0.0.1:8765`):
-
-```powershell
-python -m smart_pos_agent run
-```
-
-В первом терминале доступны `device`, `payment 10`, `refund 10 qr 504711333`, `quit`. Без Smart POS операции устройства ожидаемо завершатся диагностическим событием; HTTP-интеграция покрыта автоматическими mock-тестами.
-
-## Сборка и автозапуск Windows
+## Сборка и GitHub Actions
 
 ```powershell
 .\scripts\build-windows.ps1
-.\scripts\install-autostart.ps1 -ExecutablePath "$PWD\dist\KoshakanSmartPosAgent\KoshakanSmartPosAgent.exe"
-.\scripts\uninstall-autostart.ps1
 ```
 
-Скрипт сборки создаёт venv, устанавливает зависимости, запускает проверки и формирует PyInstaller `onedir`-сборку в `dist/`. Планировщик создаёт задачу `Koshakan Smart POS Agent` при входе текущего пользователя и не передаёт секреты через аргументы.
+Скрипт создаёт/использует `.venv`, устанавливает зависимости, выполняет ruff, mypy и pytest, собирает GUI и CLI в `dist/`, затем проверяет GUI `--smoke-test`, CLI `--help` и `--version`.
 
-## Диагностика и данные
+Обычный CI запускается на push и pull request: Ubuntu выполняет quality suite, Windows формирует скачиваемый artifact на 7 дней. Тег запускает release workflow, создающий два portable ZIP и `SHA256SUMS.txt` только после успешных проверок и safety scan.
 
-- Логи: `%PROGRAMDATA%\KoshakanSmartPosAgent\logs\agent.log` (либо `.data/logs` при development mode).
-- Состояние и история: `%PROGRAMDATA%\KoshakanSmartPosAgent\agent.sqlite3`.
-- Состояние: `python -m smart_pos_agent show-status`.
-- Удалить токены Smart POS: `python -m smart_pos_agent clear-smart-pos-credentials`.
-- `401`/`403`: агент один раз обновляет токен через официальный `/v2/revoke` и повторяет запрос. При повторной ошибке зарегистрируйте терминал заново.
-- `107`: на самом терминале не завершена предыдущая операция; CRM получает `terminal_busy`.
-- `unknown`: агент запрашивает `/v2/actualize` не чаще заданного интервала. После таймаута статус — `manual_review`; не следует считать оплату неуспешной без сверки терминала.
+## Как выпустить новую версию
+
+Версия задаётся только в `src/smart_pos_agent/version.py`. Версия package должна совпадать с тегом без префикса `v`.
+
+```powershell
+git checkout main
+git pull --ff-only
+git tag -a v0.2.0 -m "Koshakan Smart POS Agent v0.2.0"
+git push origin v0.2.0
+```
+
+После завершения workflow: GitHub → repository → Releases → `v0.2.0` → Assets → `KoshakanSmartPosAgent-v0.2.0-win64.zip`. Более подробный порядок — в [docs/releasing.md](docs/releasing.md), поведение окна — в [docs/desktop-app.md](docs/desktop-app.md).
 
 ## Ограничения
 
-Официальный контракт не описывает endpoint удалённой отмены. Агент не изобретает такой API и не может удалённо отменить активную операцию; остановка приложения прекращает лишь локальный polling. Подробный контракт WebSocket — в [docs/crm-websocket-protocol.md](docs/crm-websocket-protocol.md), схема — в [docs/architecture.md](docs/architecture.md).
+- Компьютер администратора и Smart POS должны находиться в закрытой локальной сети; терминалу нужен стабильный IP.
+- Для IP терминала может потребоваться явный `SMART_POS_TLS_MODE=ip_insecure`; HTTP не поддерживается.
+- У официального API нет удалённой отмены: выход из программы не отменяет операцию на терминале.
+- Этот проект не заявляет о физической проверке оплаты без реального подключённого Smart POS.

@@ -1,0 +1,48 @@
+name: Release Windows application
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and verify
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
+      - name: Check tag version and package archives
+        shell: pwsh
+        run: |
+          $packageVersion = python -c "from smart_pos_agent.version import __version__; print(__version__)"
+          if ('${{ github.ref_name }}' -ne "v$packageVersion") {
+            throw "Git tag and package version do not match: ${{ github.ref_name }} vs $packageVersion"
+          }
+          ./scripts/package-release.ps1 -Version '${{ github.ref_name }}'
+      - name: Write release introduction
+        shell: pwsh
+        run: |
+          @'
+          Добавлено tray-приложение, окно статуса, первичная настройка и автозапуск Windows.
+          CLI сохранён как отдельный диагностический инструмент; Windows-сборка и portable ZIP выпускаются автоматически.
+
+          Smart POS физически требует локальную сеть. Сборка пока не подписана code-signing сертификатом.
+          Реальная оплата на физическом Smart POS этим workflow не выполняется.
+          '@ | Set-Content -LiteralPath release-notes.md -Encoding utf8NoBOM
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create '${{ github.ref_name }}' release/KoshakanSmartPosAgent-v*-win64.zip release/KoshakanSmartPosAgentCli-v*-win64.zip release/SHA256SUMS.txt --title '${{ github.ref_name }}' --notes-file release-notes.md --generate-notes

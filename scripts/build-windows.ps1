@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$env:QT_QPA_PLATFORM = 'offscreen'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $VenvPath = Join-Path $ProjectRoot '.venv'
 $Python = Join-Path $VenvPath 'Scripts\python.exe'
@@ -21,5 +22,26 @@ if (-not $SkipTests) {
     & $Python -m pytest
 }
 
-& $Python -m PyInstaller --noconfirm --clean --onedir --name KoshakanSmartPosAgent --paths (Join-Path $ProjectRoot 'src') (Join-Path $ProjectRoot 'src\smart_pos_agent\entrypoint.py')
-Write-Host "Build completed: $(Join-Path $ProjectRoot 'dist\KoshakanSmartPosAgent')"
+$BuildRoot = Join-Path $ProjectRoot 'build'
+$DistRoot = Join-Path $ProjectRoot 'dist'
+foreach ($Directory in @($BuildRoot, $DistRoot)) {
+    if (Test-Path -LiteralPath $Directory) {
+        Remove-Item -LiteralPath $Directory -Recurse -Force
+    }
+}
+
+Push-Location $ProjectRoot
+try {
+    & $Python -m PyInstaller --noconfirm --clean (Join-Path $ProjectRoot 'packaging\KoshakanSmartPosAgent.spec')
+    & $Python -m PyInstaller --noconfirm --clean (Join-Path $ProjectRoot 'packaging\KoshakanSmartPosAgentCli.spec')
+} finally {
+    Pop-Location
+}
+
+$GuiExe = Join-Path $DistRoot 'KoshakanSmartPosAgent\KoshakanSmartPosAgent.exe'
+$CliExe = Join-Path $DistRoot 'KoshakanSmartPosAgentCli\KoshakanSmartPosAgentCli.exe'
+& $GuiExe --smoke-test
+& $CliExe --help
+& $CliExe --version
+Write-Host "GUI build: $(Split-Path -Parent $GuiExe)"
+Write-Host "CLI build: $(Split-Path -Parent $CliExe)"

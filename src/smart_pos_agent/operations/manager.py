@@ -11,6 +11,7 @@ from uuid import uuid4
 from ..config import Settings
 from ..crm.commands import DeviceCheckCommand, PaymentStartCommand, RefundStartCommand
 from ..crm.protocol import make_event
+from ..events import StatusObserver, notify
 from ..models import OperationRecord
 from ..smart_pos.exceptions import SmartPosError, TerminalBusyError
 from ..smart_pos.service import SmartPosService
@@ -34,11 +35,13 @@ class OperationManager:
         repository: OperationRepository,
         smart_pos: SmartPosService,
         event_sink: EventSink = _discard_event,
+        status_observer: StatusObserver | None = None,
     ) -> None:
         self.settings = settings
         self.repository = repository
         self.smart_pos = smart_pos
         self.event_sink = event_sink
+        self.status_observer = status_observer
         self._operation_lock = asyncio.Lock()
 
     def set_event_sink(self, event_sink: EventSink) -> None:
@@ -114,6 +117,9 @@ class OperationManager:
                     "commandId": operation.command_id,
                     "operationId": operation.crm_operation_id,
                     "localOperationId": operation.id,
+                    "operationType": operation.type,
+                    "amount": operation.requested_amount,
+                    "status": "accepted",
                 },
             )
             # This write deliberately precedes a call to /payment or /refund.
@@ -434,7 +440,17 @@ class OperationManager:
             "processId": operation.process_id,
             "status": status,
             "subStatus": sub_status,
+            "amount": operation.requested_amount,
         }
 
     async def _emit(self, event: dict[str, Any]) -> None:
+        if event.get("type") == "device.status":
+            payload = event.get("payload")
+            if isinstance(payload, dict):
+                notify(
+                    self.status_observer,
+                    "terminal.ready" if payload.get("reachable") else "terminal.unavailable",
+                    payload,
+                )
+        notify(self.status_observer, "operation.event", event)
         await self.event_sink(event)
